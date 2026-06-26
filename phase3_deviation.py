@@ -43,18 +43,12 @@ def _stats(d: np.ndarray) -> dict:
 
 def signed_deviation(moving: o3d.geometry.PointCloud,
                      reference: o3d.geometry.PointCloud):
-    """Signed nearest-surface distance of `moving` w.r.t. `reference`.
-
-    Sign comes from the reference normal at the closest point: a moving point
-    sitting outside the reference material (along +normal) is positive."""
     ref = reference
     if not ref.has_normals():
         estimate_normals(ref, C.VOXEL_SIZE)
     ref_pts = np.asarray(ref.points)
     ref_nrm = np.asarray(ref.normals)
     mov_pts = np.asarray(moving.points)
-
-    # vectorized nearest-neighbour query, then sign from the reference normal
     tree = cKDTree(ref_pts)
     d, idx = tree.query(mov_pts, k=1, workers=-1)
     vec = mov_pts - ref_pts[idx]
