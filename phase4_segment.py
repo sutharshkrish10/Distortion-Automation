@@ -18,8 +18,7 @@ Geometry, established from the nominal solids:
       other end is the solid connecting block. The overhang surface is the
       horizontal face bridging the legs at the inner end of the slot.
 
-Public API:
-    segment_legs_overhang(geometry) -> Segmentation
+
 """
 
 from __future__ import annotations
