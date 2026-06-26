@@ -22,8 +22,6 @@ _SIZE_RE = re.compile(C.PART_SIZE_RE, re.IGNORECASE)
 
 
 def _part_id_from_name(name: str) -> str | None:
-    """Return canonical part id (e.g. '2PR') from a filename, or None."""
-    # Prefer an explicit canonical id if it is literally present.
     for size, pid in C.SIZE_TO_PARTID.items():
         if pid.lower() in name.lower():
             return pid
@@ -34,7 +32,6 @@ def _part_id_from_name(name: str) -> str | None:
 
 
 def _scan(folder: Path, exts: tuple[str, ...]) -> dict[str, Path]:
-    """Map part_id -> file path for one source folder."""
     found: dict[str, Path] = {}
     if not folder.is_dir():
         LOG.warning("source folder missing: %s", folder)
