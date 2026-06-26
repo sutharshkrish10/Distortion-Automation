@@ -3,8 +3,6 @@ common.py
 =========
 Shared helpers used across every phase: logging, robust I/O (mesh / cloud),
 mesh->cloud sampling, normal estimation, and small geometry utilities.
-
-Keeping these here means the phase modules stay focused on their stage logic.
 """
 
 from __future__ import annotations
@@ -37,14 +35,10 @@ def get_logger(name: str = "distortion") -> logging.Logger:
 
 LOG = get_logger()
 
-
-# --------------------------------------------------------------------------
-# I/O
-# --------------------------------------------------------------------------
 def load_mesh(path: Path) -> o3d.geometry.TriangleMesh:
     """Load a triangle mesh (STL) via open3d, falling back to trimesh."""
     mesh = o3d.io.read_triangle_mesh(str(path))
-    if len(mesh.triangles) == 0:                       # open3d failed -> trimesh
+    if len(mesh.triangles) == 0:                      
         tm = trimesh.load(str(path), force="mesh")
         mesh = o3d.geometry.TriangleMesh(
             o3d.utility.Vector3dVector(np.asarray(tm.vertices)),
@@ -55,17 +49,6 @@ def load_mesh(path: Path) -> o3d.geometry.TriangleMesh:
     mesh.compute_vertex_normals()
     return mesh
 
-
-# --- Streaming sampler for huge binary STL meshes --------------------------
-# The CT surface meshes are full-resolution reconstructions (hundreds of
-# millions of triangles, tens of GB). open3d.read_triangle_mesh loads the whole
-# thing into RAM -> the process is OS-killed before any phase runs. Since the
-# pipeline only ever needs a ~1e5-point sample of each CT surface, we read the
-# STL straight off disk in chunks and area-sample it, never holding more than
-# one chunk (+ the surviving sample) in memory.
-
-# On-disk binary-STL layout: 80-byte header, uint32 triangle count, then 50
-# bytes per triangle (face normal + 3 vertices + 2-byte attribute).
 _STL_TRI_DTYPE = np.dtype([
     ("normal", "<f4", (3,)),
     ("v0", "<f4", (3,)),
@@ -89,19 +72,7 @@ def is_binary_stl(path: Path) -> bool:
 
 def sample_binary_stl(path: Path, n_samples: int,
                       chunk_tris: int = 1_000_000, seed: int = 0):
-    """Area-weighted surface sampling read straight from a binary STL in chunks.
 
-    Returns (points Nx3, normals Nx3, bbox_min, bbox_max). Peak memory is
-    O(chunk_tris + n_samples), independent of mesh size, so a 22 GB / 440 M-tri
-    CT mesh samples without ever materializing the full mesh.
-
-    Sampling uses Efraimidis-Spirakis weighted reservoir keys (key = u**(1/area)
-    per triangle): keeping the top-`n_samples` keys draws triangles with
-    probability proportional to area, i.e. an area-uniform surface sample -- the
-    same distribution mesh.sample_points_uniformly produces. Because
-    n_samples << triangles here, at most one point lands on any triangle, so
-    sampling triangles without replacement matches sampling the surface.
-    """
     n = int(n_samples)
     rng = np.random.default_rng(seed)
 
@@ -147,13 +118,11 @@ def sample_binary_stl(path: Path, n_samples: int,
             keys = np.zeros(m)
             keys[good] = rng.random(ng) ** (1.0 / area[good])
 
-            # only the chunk's strongest keys can enter the global top-N
             cand = np.nonzero(good)[0]
             k = min(n, ng)
             if cand.size > k:
                 cand = cand[np.argpartition(keys[cand], cand.size - k)[cand.size - k:]]
 
-            # uniform barycentric point inside each surviving triangle
             r1 = rng.random(cand.size)
             r2 = rng.random(cand.size)
             flip = (r1 + r2) > 1.0
@@ -196,20 +165,7 @@ def save_mesh(mesh: o3d.geometry.TriangleMesh, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     o3d.io.write_triangle_mesh(str(path), mesh)
 
-
-# --------------------------------------------------------------------------
-# Mesh -> cloud + normals
-# --------------------------------------------------------------------------
 def mesh_to_cloud(mesh: o3d.geometry.TriangleMesh, n_samples: int) -> o3d.geometry.PointCloud:
-    """Sample a mesh into a point cloud (Poisson-disk = even spacing, slower;
-    uniform = fast). Controlled by config.SAMPLE_METHOD.
-
-    The seed is reset on every call: open3d's samplers draw from the global RNG,
-    so without this a part's sampled cloud would depend on how much randomness
-    earlier parts consumed (batch position), making registration -- and the
-    borderline CT alignments downstream -- non-reproducible. Re-seeding makes
-    each part's nominal/CT cloud identical regardless of batch order. The CT
-    stream sampler is independently seeded; RANSAC re-seeds in phase 2."""
     n = int(n_samples)
     o3d.utility.random.seed(C.RANSAC_SEED)
     if C.SAMPLE_METHOD == "uniform":
@@ -224,10 +180,6 @@ def estimate_normals(pcd: o3d.geometry.PointCloud, voxel: float) -> o3d.geometry
     pcd.normalize_normals()
     return pcd
 
-
-# --------------------------------------------------------------------------
-# Geometry utilities
-# --------------------------------------------------------------------------
 def bbox_diagonal(geom) -> float:
     ext = geom.get_max_bound() - geom.get_min_bound()
     return float(np.linalg.norm(ext))
@@ -241,7 +193,7 @@ def points_of(geom) -> np.ndarray:
 
 
 def transform_copy(geom, T: np.ndarray):
-    g = geom.__class__(geom)        # cheap copy via copy-ctor
+    g = geom.__class__(geom)       
     g.transform(T)
     return g
 
