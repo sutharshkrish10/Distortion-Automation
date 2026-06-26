@@ -10,8 +10,6 @@ compare each source's bbox-diagonal to the Nominal's and apply a uniform scale
 factor when they disagree by more than SCALE_AUTODETECT_TOL (overridable in
 config). Registration (phase 2) cleans up the residual.
 
-Public API:
-    load_and_normalize(part_id, srcs) -> dict[source] -> Loaded
 """
 
 from __future__ import annotations
