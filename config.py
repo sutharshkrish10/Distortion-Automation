@@ -1,4 +1,6 @@
+"""
 config.py
+"""
 import os
 from pathlib import Path
 
