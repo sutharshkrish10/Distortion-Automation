@@ -10,9 +10,6 @@ Pipeline per source (Nominal is the fixed reference):
 
 The Nominal cloud/mesh stays put (identity transform); CT and Zephyr are moved.
 
-Public API:
-    register(source_pcd, target_pcd, voxel_size) -> RegResult
-    register_part(part_id, loaded) -> dict[source] -> Aligned   (+ saves outputs)
 """
 
 from __future__ import annotations
