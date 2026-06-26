@@ -25,8 +25,6 @@ Public API:
 from __future__ import annotations
 
 import os
-# sklearn/joblib core-detection fails on some Windows setups (slow subprocess +
-# warning); pin it before sklearn is imported.
 os.environ.setdefault("LOKY_MAX_CPU_COUNT", "4")
 
 from dataclasses import dataclass, field
@@ -41,36 +39,29 @@ from common import LOG, angle_between, make_pcd, points_of
 
 @dataclass
 class Plane:
-    normal: np.ndarray            # unit normal
-    d: float                      # plane offset (n.x + d = 0)
-    centroid: np.ndarray          # centroid of inlier points
+    normal: np.ndarray        
+    d: float                 
+    centroid: np.ndarray          
     n_inliers: int
 
 
 @dataclass
 class Segmentation:
-    points: np.ndarray                       # Nx3 source points
-    V_dir: np.ndarray                        # vertical/build axis (unit)
-    W_dir: np.ndarray                        # slot-width axis Leg1->Leg2 (unit)
-    D_dir: np.ndarray                        # slot-depth axis (unit)
-    W_mid: float                             # slot centre along W
+    points: np.ndarray                  
+    V_dir: np.ndarray                       
+    W_dir: np.ndarray                        
+    D_dir: np.ndarray                        
+    W_mid: float                             
     slot_halfwidth: float
-    v_overhang: float                        # overhang level along V
-    open_end: str                            # 'lo' or 'hi' along V
-    masks: dict = field(default_factory=dict)   # label -> bool mask into points
-    planes: dict = field(default_factory=dict)  # 'overhang'/'leg1_wall'/'leg2_wall'
+    v_overhang: float                        
+    open_end: str                           
+    masks: dict = field(default_factory=dict)   
+    planes: dict = field(default_factory=dict)  
     ok: bool = True
     note: str = ""
 
-
-# --------------------------------------------------------------------------
-# axis detection
-# --------------------------------------------------------------------------
 def _slot_gap(coords: np.ndarray):
-    """KMeans(2) split of 1-D coords -> (gap, centre, halfwidth) for a slot.
-
-    gap = clear distance between the inner edges of the two clusters
-    (negative if the two clusters overlap, i.e. no slot here)."""
+ 
     if len(coords) < 10:
         return -1e9, 0.0, 0.0
     km = KMeans(n_clusters=2, n_init=4, random_state=0).fit(coords.reshape(-1, 1))
@@ -79,7 +70,7 @@ def _slot_gap(coords: np.ndarray):
     if len(a) == 0 or len(b) == 0:
         return -1e9, 0.0, 0.0
     if a.mean() > b.mean():
-        a, b = b, a                       # a = lower cluster
+        a, b = b, a                    
     gap = b.min() - a.max()
     centre = 0.5 * (a.max() + b.min())
     return float(gap), float(centre), float(gap / 2.0)
@@ -91,10 +82,10 @@ def detect_axes(points: np.ndarray):
     ext = mx - mn
     basis = np.eye(3)
 
-    v_ax = int(np.argmax(ext))            # vertical = tallest extent
+    v_ax = int(np.argmax(ext))          
     horiz = [a for a in range(3) if a != v_ax]
 
-    best = None                            # (gap, h_ax, end, centre, halfwidth, v_oh)
+    best = None                           
     for end in ("lo", "hi"):
         if end == "lo":
             sel = points[:, v_ax] < mn[v_ax] + C.END_SLICE_FRAC * ext[v_ax]
@@ -119,12 +110,6 @@ def detect_axes(points: np.ndarray):
 
     w_ax = h
     d_ax = [a for a in horiz if a != w_ax][0]
-
-    # Overhang level along V: the notch CEILING -- the horizontal surface that
-    # bridges the legs at the inner end of the slot. Inside the slot (narrow W
-    # band) the only solid faces are the ceiling and the part's far outer face;
-    # the ceiling is the one nearest the OPEN end, so we 2-cluster the in-slot V
-    # values and take the cluster centre closest to the open-end extreme.
     in_slot = np.abs(points[:, w_ax] - centre) < max(half * C.OVERHANG_W_FRAC, 1e-6)
     vals = points[in_slot, v_ax]
     open_pos = mn[v_ax] if open_end == "lo" else mx[v_ax]
@@ -141,9 +126,9 @@ def detect_axes(points: np.ndarray):
             float(centre), float(abs(half)), v_oh, open_end)
 
 
-# --------------------------------------------------------------------------
+
 # plane fitting (RANSAC via open3d)
-# --------------------------------------------------------------------------
+
 def _fit_plane(pts: np.ndarray, expect_normal: np.ndarray | None = None) -> Plane | None:
     if len(pts) < max(C.PLANE_RANSAC_N, 10):
         return None
@@ -164,11 +149,7 @@ def _fit_plane(pts: np.ndarray, expect_normal: np.ndarray | None = None) -> Plan
 
 
 def _fit_plane_pca(pts: np.ndarray, expect_normal: np.ndarray | None = None) -> Plane | None:
-    """Least-squares (PCA) plane through `pts`: normal = smallest-variance axis.
-    Used for the inner walls, where the slab is overwhelmingly the wall itself --
-    PCA is stable and captures the wall's lean, whereas RANSAC on a thin slab can
-    latch onto a competing sub-plane (e.g. a depth end-face) when inliers are
-    few (seen on 4P2)."""
+ 
     if len(pts) < max(C.PLANE_RANSAC_N, 10):
         return None
     c = pts.mean(0)
@@ -183,9 +164,8 @@ def _fit_plane_pca(pts: np.ndarray, expect_normal: np.ndarray | None = None) -> 
     return Plane(n, float(-np.dot(n, c)), c, len(pts))
 
 
-# --------------------------------------------------------------------------
 # main segmentation
-# --------------------------------------------------------------------------
+
 def segment_legs_overhang(geometry) -> Segmentation:
     pts = points_of(geometry)
     V, W, D, W_mid, half, v_oh, open_end = detect_axes(pts)
@@ -193,21 +173,15 @@ def segment_legs_overhang(geometry) -> Segmentation:
     w = pts @ W
     v = pts @ V
 
-    # legs sit on the open-end side of the overhang level along V
     if open_end == "lo":
         leg_side = v < v_oh + 0.05 * (pts @ V).ptp()
     else:
         leg_side = v > v_oh - 0.05 * (pts @ V).ptp()
 
-    # Bound each leg at its slot EDGE (W_mid -/+ half), not the slot centre.
-    # Leg material lies outside the slot; using the centre let a wide slot
-    # (4P2/6P1, half=2-3) pull the overhang-ceiling strip (which spans the slot
-    # at V~v_oh) into the leg, so the inner-wall fit latched onto that horizontal
-    # sliver instead of the vertical wall. (For 2PR's narrow slot edge~centre.)
-    leg1_mask = leg_side & (w < W_mid - half)      # lower-W leg  = Leg 1
-    leg2_mask = leg_side & (w > W_mid + half)      # higher-W leg = Leg 2
-    # overhang ceiling: inside the slot in W AND near the overhang level in V,
-    # so we don't pick up the block's outer top face (also normal +/-V).
+
+    leg1_mask = leg_side & (w < W_mid - half)      
+    leg2_mask = leg_side & (w > W_mid + half)      
+
     v_extent = v.max() - v.min()
     overhang_mask = ((np.abs(w - W_mid) < max(half * C.OVERHANG_W_FRAC, 1e-6)) &
                      (np.abs(v - v_oh) < max(C.OVERHANG_V_FRAC * v_extent,
@@ -231,14 +205,14 @@ def segment_legs_overhang(geometry) -> Segmentation:
         lw = lp @ W
         width = lw.max() - lw.min()
         band = max(width * C.WALL_BAND_FRAC, C.PLANE_DIST_THRESH * 2)
-        if toward_high:                    # inner edge is the high-W side
+        if toward_high:                   
             sub = lp[lw > lw.max() - band]
         else:
             sub = lp[lw < lw.min() + band]
         return sub, _fit_plane_pca(sub, expect_normal=W)
 
-    w1_pts, p1 = inner_wall(leg1_mask, toward_high=True)    # leg1 inner = +W face
-    w2_pts, p2 = inner_wall(leg2_mask, toward_high=False)   # leg2 inner = -W face
+    w1_pts, p1 = inner_wall(leg1_mask, toward_high=True)   
+    w2_pts, p2 = inner_wall(leg2_mask, toward_high=False) 
     p_oh = _fit_plane(pts[overhang_mask], expect_normal=V)
 
     seg.masks["leg_1_inner"] = (w1_pts is not None)
