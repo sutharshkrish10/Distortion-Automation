@@ -1,27 +1,8 @@
-"""
 config.py
-=========
-Single source of truth for every tunable in the overhang distortion pipeline.
-
-Edit values here only -- no magic numbers live inside the phase modules.
-Paths are resolved relative to this file so the project folder can be moved
-without breaking anything.
-
-Geometry recap (see Data Set/Leg and Overhang/Slide1.JPG & Slide2.JPG):
-    U-shaped overhang artifact -- a solid block with a slot/notch.
-    * Leg 1 / Leg 2 ...... the two upstanding walls flanking the slot.
-    * Overhang surface ... the horizontal floor/ceiling of the slot between legs.
-    * Distortion Angle ... interior angle (overhang plane vs each leg's INNER wall),
-                           nominally 90 deg; distortion = angle - Nominal angle.
-    * Overhang Length .... inner-wall-to-inner-wall span across the slot.
-"""
-
 import os
 from pathlib import Path
 
-# --------------------------------------------------------------------------
 # Paths
-# --------------------------------------------------------------------------
 PROJECT_DIR = Path(__file__).resolve().parent
 DATA_ROOT   = PROJECT_DIR.parent / "Data Set"
 OUTPUT_ROOT = PROJECT_DIR / "Output"
@@ -29,164 +10,77 @@ OUTPUT_ROOT = PROJECT_DIR / "Output"
 # Sibling source folders inside DATA_ROOT (one file per part in each).
 SOURCE_DIRS = {
     "nominal": DATA_ROOT / "Nominal STL Files",
-    # Clean part-only CT surface meshes (1.8-12 M tris), proportions match the
-    # nominal (auto-scale ~1.0). The "CT Surface mesh" folder held the raw full-
-    # resolution reconstructions (15-22 GB, oversized/mis-shaped) which broke
-    # 4P2/6P1 registration -- switched away from those.
     "ct":      DATA_ROOT / "actual CT scan",
-    # Zephyr photogrammetry is now delivered as cropped surface STL meshes (part
-    # only, turntable removed) rather than raw fused dense point clouds. They are
-    # sampled to a cloud in phase 1 just like the CT/nominal meshes.
     "zephyr":  DATA_ROOT / "Zephyr STL",
 }
-
-# Reference slides (for documentation / annotated-plot styling reference).
-SLIDE_DIR = DATA_ROOT / "Leg and Overhang" / "Leg and Overhang"
-
-# --------------------------------------------------------------------------
-# Part matching
-# --------------------------------------------------------------------------
-# Parts are matched by ID embedded in the filename. Filenames are messy
-# ("2mm", "4 mm", "6mm", "Mesh from 2PR.stl") so we never hard-code spacing.
-# A part is identified by its overhang size in mm; we capture the leading digit
-# and map it to the canonical part ID used in the Nominal STL names.
-PART_SIZE_RE = r"(?<!\d)([246])\s*(?:mm|P)"   # 2/4/6 followed by 'mm' or 'P...'
-SIZE_TO_PARTID = {"2": "2PR", "4": "4P2", "6": "6P1"}   # canonical IDs
-
-# --------------------------------------------------------------------------
-# Phase 1 -- load & unit normalization
-# --------------------------------------------------------------------------
-# If an as-built source's bbox-diagonal differs from the Nominal's by more than
-# this tolerance, a scale factor is applied (diag_nominal / diag_source),
-# unless an explicit override is given below.
-SCALE_AUTODETECT_TOL = 0.05          # 5 % bbox-diagonal mismatch triggers scaling
-SCALE_OVERRIDE = {                   # {(part_id, source): factor}; [] = auto
-    # ("2PR", "zephyr"): 0.71,
+PART_SIZE_RE = r"(?<!\d)([246])\s*(?:mm|P)"   
+SIZE_TO_PARTID = {"2": "2PR", "4": "4P2", "6": "6P1"}  
+SCALE_AUTODETECT_TOL = 0.05        
+SCALE_OVERRIDE = {                   
+ 
 }
 
-# Mesh -> cloud sampling. Poisson-disk gives even spacing (per spec) but is slow
-# on dense meshes (e.g. the 6M-vertex CT); "uniform" is much faster and fine for
-# registration/deviation. Switch here if runs are too slow.
-SAMPLE_METHOD = os.environ.get("SAMPLE_METHOD", "poisson")   # "poisson" | "uniform"
+SAMPLE_METHOD = os.environ.get("SAMPLE_METHOD", "poisson") 
 POISSON_SAMPLES = {
     "nominal": 60000,
     "ct":      120000,
     "zephyr":  120000,
 }
-NORMAL_RADIUS_FACTOR = 3.0           # normal-estimation radius = factor * voxel
+NORMAL_RADIUS_FACTOR = 3.0       
 NORMAL_MAX_NN = 30
 
-# --------------------------------------------------------------------------
 # Phase 2 -- registration (Nominal is the fixed reference frame)
-# --------------------------------------------------------------------------
-VOXEL_SIZE = 0.4                     # mm; downsample size for coarse stage
-FPFH_RADIUS_FACTOR = 5.0             # FPFH feature radius = factor * voxel
-RANSAC_DIST_FACTOR = 1.5             # global-registration inlier dist = factor*voxel
-RANSAC_N = 4                         # points per RANSAC sample
+
+VOXEL_SIZE = 0.4              
+FPFH_RADIUS_FACTOR = 5.0            
+RANSAC_DIST_FACTOR = 1.5          
+RANSAC_N = 4                         
 RANSAC_MAX_ITER = 4_000_000
 RANSAC_CONFIDENCE = 0.999
-# open3d's RANSAC reads a global RNG; pin it so registration (and every metric
-# derived from the alignment) is reproducible run to run. RANSAC_SEED also seeds
-# the mesh->cloud Poisson sampling (common.mesh_to_cloud) so each part's cloud is
-# independent of batch position.
 RANSAC_SEED = 0
-
-# Coarse RANSAC occasionally lands a near-symmetric part in a flipped/rotated
-# basin that ICP cannot escape; the sparsest as-built clouds (e.g. the 4 mm
-# Zephyr STL) are the most prone to it. We therefore run the coarse stage from
-# several fixed seeds and KEEP THE ONE with the best nominal->aligned coverage
-# (fraction of nominal points with an as-built point within COVERAGE_TOL mm).
-# Coverage is used -- not ICP fitness/rmse -- because a flipped fit can score a
-# deceptively good rmse while leaving most of the nominal surface uncovered.
-# Fixed seed list => still fully deterministic.
 RANSAC_SEEDS = (0, 1, 2, 3)
-REG_COVERAGE_TOL = 0.5               # mm; nominal point counts as covered within this
-
-ICP_DIST_FACTOR = 2.0                # fine ICP max corr. dist = factor * voxel
+REG_COVERAGE_TOL = 0.5            
+ICP_DIST_FACTOR = 2.0              
 ICP_MAX_ITER = 100
-
-# Stage A step 5: a second ICP using ONLY the segmented leg regions, so the
-# distorted overhang does not bias the datum. Run on the full-resolution clouds.
 LEG_REFINE = True
 LEG_REFINE_DIST_FACTOR = 1.5
-
-# Stage A step 6: "upright datum". A partial, near-symmetric as-built surface
-# (the cropped Zephyr mesh) is rotationally under-constrained -- RANSAC/ICP can
-# settle with the part body ROLLED several degrees about the depth axis vs the
-# nominal, which makes the overlay look tilted and inflates the deviation map.
-# After registration we re-roll each source's principal-axis frame onto the
-# nominal's (~world) frame with a minimal, flip-free rotation, but ONLY when the
-# residual body roll exceeds UPRIGHT_MAX_ROLL_DEG. Well-aligned sources (CT,
-# nominal) fall under the threshold and are left exactly as-is, so their
-# authoritative per-leg readings do not move; slot_closure and span are
-# rotation-invariant either way.
 UPRIGHT_REFINE = True
 UPRIGHT_MAX_ROLL_DEG = 3.0
-# Only apply the correction for a plausible residual roll. A genuine residual
-# from coarse-RANSAC + ICP + leg-datum refinement is small (single digits, e.g.
-# 2PR Zephyr ~9 deg); a much larger "roll" means the PCA build-axis estimate was
-# thrown off by a sparse/partial cloud (e.g. the 4mm Zephyr, which reads ~35 deg
-# yet is already upright) -- those are rejected, leaving the registration as-is.
 UPRIGHT_MAX_APPLY_DEG = 20.0
 
-# --------------------------------------------------------------------------
+
 # Phase 3 -- surface deviation
-# --------------------------------------------------------------------------
-DEVIATION_PAIRS = [                  # (moving/source, reference) -- sign by ref surface
+
+DEVIATION_PAIRS = [                  
     ("ct", "nominal"),
     ("zephyr", "nominal"),
     ("ct", "zephyr"),
 ]
-HEATMAP_CLIP = 1.0                   # mm; +/- range for the deviation colour map
+HEATMAP_CLIP = 1.0                  
 HIST_BINS = 80
 
-# --------------------------------------------------------------------------
-# Phase 4 -- segmentation (legs + overhang) in the aligned Nominal frame
-# --------------------------------------------------------------------------
-END_SLICE_FRAC = 0.15                # fraction of vertical extent used as an end slab
-BIMODAL_BINS = 24                    # histogram bins for slot-gap detection
-WALL_BAND_FRAC = 0.30                # inner-wall slab thickness, as frac of leg width
-OVERHANG_W_FRAC = 0.80               # keep |W-centre| < frac*half_slot for overhang fit
-OVERHANG_V_FRAC = 0.12               # keep |V-overhang_level| < frac*V_extent (avoid block top)
-DBSCAN_EPS_FACTOR = 3.0              # DBSCAN eps = factor * voxel (fallback cleanup)
-DBSCAN_MIN_POINTS = 20
 
-# RANSAC plane fits (open3d segment_plane)
-PLANE_DIST_THRESH = 0.20             # mm
+# Phase 4 -- segmentation (legs + overhang) in the aligned Nominal frame
+
+END_SLICE_FRAC = 0.15           
+BIMODAL_BINS = 24              
+WALL_BAND_FRAC = 0.30               
+OVERHANG_W_FRAC = 0.80               
+OVERHANG_V_FRAC = 0.12               
+DBSCAN_EPS_FACTOR = 3.0              
+DBSCAN_MIN_POINTS = 20
+PLANE_DIST_THRESH = 0.20           
 PLANE_RANSAC_N = 3
 PLANE_NUM_ITER = 2000
 
-# --------------------------------------------------------------------------
-# Phase 5 -- measurement
-# --------------------------------------------------------------------------
-# Leg distortion is reported as the rotation of each leg's inner-wall plane
-# relative to the SAME leg's nominal inner wall (in the co-registered frame),
-# signed so + = leg leaned inward / slot closing. This needs only the walls, so
-# Zephyr (which never captures the recessed overhang ceiling) is still measurable.
-#
-# The legacy overhang-vs-wall angle is also reported, but only where the overhang
-# ceiling was actually captured: if the fitted overhang plane's normal tilts more
-# than this from the build axis V, that angle is treated as unmeasured (NaN)
-# rather than reported as a misleading number (e.g. Zephyr's ~81 deg-off plane).
-OVERHANG_MAX_TILT_DEG = 30.0
 
-# Per-leg result is ALSO reported as an absolute interior "leg-vs-span" angle:
-# nominal corner = 90 deg, and a leg leaning OUTWARD (slot opening) reads > 90.
-# Since distortion_leg is signed + = leaned inward/closing, the absolute angle is
-# NOMINAL_LEG_ANGLE_DEG - distortion.
+# Phase 5 -- measurement
+
+OVERHANG_MAX_TILT_DEG = 30.0
 NOMINAL_LEG_ANGLE_DEG = 90.0
 
-# Per-leg leg-lean distortion is flagged reliable by SOURCE, not by alignment
-# fitness. Photogrammetry (Zephyr) physically cannot see the recessed/grazing
-# inner wall, so its per-leg values are still REPORTED but tagged
-# perleg_reliable=False (trust slot_closure for Zephyr). CT/nominal see both
-# walls -- and per-leg lean + slot_closure are registration-INVARIANT anyway, so
-# CT's lower ICP fitness (~0.65-0.77, from genuine ~1mm part distortion) does NOT
-# make its per-leg readings unreliable.
-
-# --------------------------------------------------------------------------
 # Phase 6 -- reporting
-# --------------------------------------------------------------------------
+
 REGISTRATION_CSV = OUTPUT_ROOT / "registration_report.csv"
 COMPARISON_CSV   = OUTPUT_ROOT / "comparison_report.csv"
 DISTORTION_CSV   = OUTPUT_ROOT / "distortion_report.csv"
