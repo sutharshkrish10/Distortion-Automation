@@ -1,6 +1,6 @@
 """
 align_compare_distortion.py
-===========================
+
 Overhang-specimen distortion pipeline -- main orchestrator.
 
 Brings three representations of each U-channel overhang specimen (Nominal CAD,
@@ -111,8 +111,8 @@ def process_part(part_id, srcs, args):
     aligned = register_part(part_id, loaded)
     reg_rows += registration_rows(part_id, aligned)
     if args.visualize:
-        _visualize_alignment(part_id, aligned)        # all three overlaid
-        _visualize_pairs(part_id, aligned)            # Nominal-vs-CT, Nominal-vs-Zephyr
+        _visualize_alignment(part_id, aligned)   
+        _visualize_pairs(part_id, aligned)            
 
     # Phase 3  (Stage B)
     if not args.skip_deviation:
@@ -138,9 +138,9 @@ def process_part(part_id, srcs, args):
             leg2_angle = C.NOMINAL_LEG_ANGLE_DEG - d2
             row = {
                 "part": part_id, "source": src,
-                "angle_leg1_deg": round(m["angle_leg1"], 3),   # overhang-vs-wall; NaN if ceiling absent
+                "angle_leg1_deg": round(m["angle_leg1"], 3),  
                 "angle_leg2_deg": round(m["angle_leg2"], 3),
-                "leg1_angle_vs_span_deg": round(leg1_angle, 2),  # absolute interior angle
+                "leg1_angle_vs_span_deg": round(leg1_angle, 2), 
                 "leg2_angle_vs_span_deg": round(leg2_angle, 2),
                 "distortion_leg1_deg": round(d1, 3),
                 "distortion_leg2_deg": round(d2, 3),
@@ -157,7 +157,6 @@ def process_part(part_id, srcs, args):
                      "" if perleg_reliable else " [low-conf]",
                      d1, d2, sc, m["overhang_length"])
 
-            # Phase 6 per-source artifacts
             save_segment_colored_cloud(part_id, src, seg)
             segment_cloud_png(part_id, src, seg, row)
             segment_cloud_3d_png(part_id, src, seg, row)
