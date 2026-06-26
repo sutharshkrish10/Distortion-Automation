@@ -50,15 +50,11 @@ from phase0_match import match_parts
 
 # Diverging map: blue = under/inside Nominal, white ~ 0, red = proud/outside.
 CMAP = "coolwarm"
-# Above this triangle count a CT display copy is decimated so interaction stays
-# smooth (the CT meshes are 10-12 M triangles). Disable with --full.
 DECIMATE_ABOVE = 2_000_000
 DECIMATE_TARGET = 1_500_000
 
-
-# --------------------------------------------------------------------------
 # Mesh I/O
-# --------------------------------------------------------------------------
+
 def _read_mesh_pv(path) -> pv.PolyData:
     """Read an STL as PyVista PolyData. VTK's reader auto-detects binary/ASCII;
     if it yields nothing (the 'solid'-prefixed binary STLs can trip parsers) we
@@ -83,10 +79,8 @@ def _sampled_centre(path, source) -> np.ndarray:
         cloud = mesh_to_cloud(load_mesh(path), C.POISSON_SAMPLES[source])
     return np.asarray(cloud.get_center(), dtype=float)
 
-
-# --------------------------------------------------------------------------
 # Alignment
-# --------------------------------------------------------------------------
+
 def _load_transform(part_id, source):
     """Return (scale, T 4x4) from Output/<part>/transforms.json, or None."""
     tf_path = C.OUTPUT_ROOT / part_id / "transforms.json"
@@ -112,13 +106,7 @@ def _apply_alignment(mesh: pv.PolyData, path, source, scale, T) -> pv.PolyData:
 
 
 def _fit_bbox(test: pv.PolyData, nominal: pv.PolyData) -> pv.PolyData:
-    """Display-only anisotropic fit: map the test's axis-aligned bounding box
-    onto the nominal's, per axis. This makes the base (W x D footprint) match the
-    nominal and AMPLIFIES the short build height to fill it -- so a partial Zephyr
-    scan (which is proportionally short in height) overlays the nominal instead of
-    looking smaller. NB this stretches the captured surface to span material that
-    was never scanned, so the deviation map in the stretched axis is no longer a
-    true distance -- it is a visualization aid, not a measurement."""
+  
     nb = np.asarray(nominal.bounds).reshape(3, 2)     # [[xmin,xmax],[ymin,ymax],[zmin,zmax]]
     tb = np.asarray(test.bounds).reshape(3, 2)
     pts = np.asarray(test.points, dtype=float).copy()
@@ -147,10 +135,8 @@ def _icp_refine(test: pv.PolyData, nominal: pv.PolyData, init=np.eye(4)):
     LOG.info("    ICP refine: fitness=%.3f rmse=%.3f", icp.fitness, icp.inlier_rmse)
     return np.asarray(icp.transformation, dtype=float)
 
-
-# --------------------------------------------------------------------------
 # Deviation + rendering
-# --------------------------------------------------------------------------
+
 def _signed_deviation(test: pv.PolyData, nominal: pv.PolyData) -> pv.PolyData:
     """Per test-vertex signed distance to the Nominal surface (+ = proud)."""
     out = test.compute_implicit_distance(nominal)
@@ -178,9 +164,7 @@ def visualize_pair(part_id, source, srcs, args):
     test = _read_mesh_pv(test_path)
 
     # --- align test -> nominal -----------------------------------------
-    # Prefer the pipeline's saved transform (consistent with the report); --icp
-    # refines on top of it. If no transform is saved, ICP runs from identity as
-    # a best-effort fallback (may fail for scale-mismatched Zephyr).
+
     saved = _load_transform(part_id, source)
     if saved is not None:
         scale, T = saved
@@ -191,7 +175,7 @@ def visualize_pair(part_id, source, srcs, args):
         LOG.warning("[%s] %s: no saved transform -- forcing ICP fallback",
                     part_id, source)
     if args.icp or saved is None:
-        T_icp = _icp_refine(test, nominal)        # test already roughly aligned -> init = I
+        T_icp = _icp_refine(test, nominal)     
         test = test.transform(T_icp, inplace=False)
 
     fitted = False
@@ -199,10 +183,7 @@ def visualize_pair(part_id, source, srcs, args):
         test = _fit_bbox(test, nominal)
         fitted = True
 
-    # --- decimate heavy CT display copy --------------------------------
-    # Use decimate_pro (vtkDecimatePro: incremental edge-collapse, low memory),
-    # NOT decimate (vtkQuadricDecimation), which builds per-vertex quadric
-    # matrices over the whole 12M-tri CT mesh and OOMs on a tight machine.
+
     if not args.full and test.n_cells > DECIMATE_ABOVE:
         red = 1.0 - DECIMATE_TARGET / test.n_cells
         LOG.info("[%s] %s: decimating %d -> ~%d tris for display "
@@ -210,8 +191,7 @@ def visualize_pair(part_id, source, srcs, args):
         try:
             test = test.decimate_pro(red, preserve_topology=False)
         except Exception as e:
-            # last resort: render the vertices as a point cloud (signed distance is
-            # per-point, so the heat-map still works; just no triangle surface).
+      
             LOG.warning("[%s] %s: mesh decimation failed (%s); falling back to a "
                         "subsampled point cloud", part_id, source, e)
             pts = np.asarray(test.points)
@@ -219,16 +199,12 @@ def visualize_pair(part_id, source, srcs, args):
             idx = np.random.default_rng(0).choice(len(pts), k, replace=False)
             test = pv.PolyData(pts[idx])
 
-    # --- signed deviation ----------------------------------------------
+
     test = _signed_deviation(test, nominal)
     dev = test["deviation_mm"]
     clip = args.clip
     thresh = args.threshold
     LOG.info("[%s] %s: %s", part_id, source, _stats(dev, thresh).replace("\n", "  "))
-
-    # --- render ---------------------------------------------------------
-    # bbox-fitted views go to a separate file so they never clobber the honest
-    # (uniform-scale) deviation screenshot.
     suffix = "_fitbbox" if fitted else ""
     out_png = C.OUTPUT_ROOT / part_id / f"deviation_{source}{suffix}.png"
     out_png.parent.mkdir(parents=True, exist_ok=True)
