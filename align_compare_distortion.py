@@ -31,11 +31,6 @@ Usage:
 from __future__ import annotations
 
 import os
-# open3d's RANSAC (global registration + plane fitting) is multithreaded and not
-# reproducible across threads even when its RNG is seeded; pin OpenMP to a single
-# thread so the whole pipeline is bit-for-bit deterministic. numpy/MKL use a
-# separate thread pool, so the streaming CT sampler is unaffected. Must be set
-# before open3d is imported (via common below).
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 
 import argparse
@@ -66,14 +61,6 @@ def _visualize_alignment(part_id, aligned):
 
 
 def _visualize_pairs(part_id, aligned):
-    """Dedicated interactive windows per pair: Nominal-vs-CT and Nominal-vs-Zephyr.
-
-    For each pair, two windows open in sequence (close one to advance):
-      1. overlay   -- Nominal (grey) + as-built (coloured), to eyeball sag/offset
-      2. heat-map  -- as-built coloured by signed deviation from Nominal
-                      (blue = under/inside, white ~ 0, red = proud/outside),
-                      clipped to +/-config.HEATMAP_CLIP mm.
-    """
     import open3d as o3d
     nominal = aligned.get("nominal")
     if nominal is None:
@@ -131,8 +118,6 @@ def process_part(part_id, srcs, args):
     if not args.skip_deviation:
         comp_rows += deviations_for_part(part_id, aligned)
 
-    # Phase 4 + 5  (Stage C) -- measure Nominal first so its per-leg lean is the
-    # baseline the other sources' deflections are taken relative to.
     base = None
     for src in (s for s in C.SOURCES if s in aligned):
         try:
@@ -140,26 +125,15 @@ def process_part(part_id, srcs, args):
             m = measure_distortion_and_span(seg)
             if src == "nominal":
                 base = m
-            # per-leg deflection = each leg's intrinsic lean minus the nominal
-            # leg's lean (registration-free); flip leg2 so + = leaned toward the
-            # slot (closing) for both legs. slot_closure = inter-wall angle vs
-            # nominal (registration-independent -> valid for Zephyr too).
+                
             if base:
                 d1 = m["lean_leg1"] - base["lean_leg1"]
                 d2 = -(m["lean_leg2"] - base["lean_leg2"])
             else:
                 d1 = d2 = float("nan")
-            # per-leg is occlusion-limited only for Zephyr photogrammetry, which
-            # reconstructs the two inner walls unequally; keep its raw values but
-            # flag them low-confidence (trust slot_closure). CT/nominal see both
-            # walls and per-leg lean is registration-invariant, so CT's lower ICP
-            # fitness (from genuine part distortion) does not make it unreliable.
             perleg_reliable = src != "zephyr"
-            # sign so + = slot closing, consistent with the per-leg deflection
             sc = base["interwall"] - m["interwall"] if base else float("nan")
             dL = m["overhang_length"] - base["overhang_length"] if base else float("nan")
-            # absolute interior leg-vs-span angle
-            # (nominal 90; > 90 = leg leaned outward / slot opening)
             leg1_angle = C.NOMINAL_LEG_ANGLE_DEG - d1
             leg2_angle = C.NOMINAL_LEG_ANGLE_DEG - d2
             row = {
@@ -218,11 +192,7 @@ def main():
     ap.add_argument("--skip-deviation", action="store_true",
                     help="skip Stage B (faster)")
     args = ap.parse_args()
-
-    # Seed open3d's global RNG up front so the whole pipeline is reproducible:
-    # this covers the nominal Poisson-disk sampling (the registration target) as
-    # well as the RANSAC global registration. Without it, a fresh nominal cloud
-    # each run perturbs every downstream alignment and metric.
+    
     import open3d as o3d
     o3d.utility.random.seed(C.RANSAC_SEED)
 
