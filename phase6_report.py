@@ -2,11 +2,6 @@
 phase6_report.py  --  aggregate CSV reports, segment-coloured clouds, and the
 annotated geometry plot per part/source (mirroring Slide1.JPG / Slide2.JPG).
 
-Public API:
-    write_reports(reg_rows, comp_rows, dist_rows)
-    segment_cloud_png(part_id, source, seg)        # annotated cross-section plot
-    segment_cloud_3d_png(part_id, source, seg)     # 3D isometric companion
-    save_segment_colored_cloud(part_id, source, seg)
 """
 
 from __future__ import annotations
@@ -20,10 +15,8 @@ import matplotlib.pyplot as plt
 import config as C
 from common import LOG, make_pcd, save_cloud
 
-
-# --------------------------------------------------------------------------
 # CSV reports
-# --------------------------------------------------------------------------
+
 def write_reports(reg_rows, comp_rows, dist_rows):
     C.OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
     if reg_rows:
@@ -55,10 +48,7 @@ def registration_rows(part_id, aligned) -> list[dict]:
         })
     return rows
 
-
-# --------------------------------------------------------------------------
 # segment-coloured cloud
-# --------------------------------------------------------------------------
 def save_segment_colored_cloud(part_id, source, seg):
     pts = seg.points
     colors = np.tile(np.array(C.SEG_COLORS["other"]), (len(pts), 1))
@@ -72,9 +62,9 @@ def save_segment_colored_cloud(part_id, source, seg):
     save_cloud(pcd, C.OUTPUT_ROOT / part_id / f"segments_{source}.ply")
 
 
-# --------------------------------------------------------------------------
+
 # annotated geometry plot (Slide1/Slide2 style), in the W-V cross-section
-# --------------------------------------------------------------------------
+
 def segment_cloud_png(part_id, source, seg, measure: dict | None = None):
     pts = seg.points
     w = pts @ seg.W_dir
@@ -129,7 +119,7 @@ def segment_cloud_png(part_id, source, seg, measure: dict | None = None):
                   f"slot-closure={sc:+.2f} deg   "
                   f"span={measure['overhang_span_mm']:.2f}mm")
         a1, a2 = measure.get("angle_leg1_deg"), measure.get("angle_leg2_deg")
-        if a1 == a1:                       # overhang angle present (not NaN)
+        if a1 == a1:                      
             title += f"\noverhang angle L1={a1:.1f} L2={a2:.1f} deg"
     ax.set_title(title, fontsize=10)
     ax.set_xlabel("slot-width axis W (mm)")
@@ -143,9 +133,9 @@ def segment_cloud_png(part_id, source, seg, measure: dict | None = None):
     plt.close(fig)
 
 
-# --------------------------------------------------------------------------
+
 # 3D segment screenshot (companion to the 2D annotated_<src>.png)
-# --------------------------------------------------------------------------
+
 def segment_cloud_3d_png(part_id, source, seg, measure: dict | None = None):
     """Clean isometric 3D screenshot of the segmented cloud, saved as
     annotated_3d_<source>.png -- shows the depth dimension the 2D
