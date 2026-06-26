@@ -31,8 +31,8 @@ from common import (LOG, bbox_diagonal, estimate_normals, is_binary_stl,
 class Loaded:
     source: str
     path: Path
-    cloud: o3d.geometry.PointCloud          # normals estimated, unit-scaled
-    mesh: o3d.geometry.TriangleMesh | None  # present for nominal/ct (scaled)
+    cloud: o3d.geometry.PointCloud          
+    mesh: o3d.geometry.TriangleMesh | None  
     scale: float = 1.0
     n_points: int = 0
     info: dict = field(default_factory=dict)
@@ -59,8 +59,6 @@ def _resolve_scale(part_id: str, source: str, diag_src: float, diag_nom: float) 
 def load_and_normalize(part_id: str,
                        srcs: dict[str, Path | None]) -> dict[str, Loaded]:
     out: dict[str, Loaded] = {}
-
-    # --- Nominal first: it defines the reference scale -------------------
     nom_path = srcs.get("nominal")
     if nom_path is None:
         LOG.warning("[%s] no Nominal STL -- cannot build reference frame; "
@@ -76,12 +74,6 @@ def load_and_normalize(part_id: str,
     LOG.info("[%s] nominal : %d pts, bbox diag %.2f mm",
              part_id, len(nom_cloud.points), diag_nom)
 
-    # --- CT mesh ---------------------------------------------------------
-    # CT surface meshes are huge (hundreds of M triangles, tens of GB); loading
-    # the full mesh OOM-kills the process. Binary STLs are stream-sampled
-    # straight off disk (no mesh in RAM, so ct_mesh stays None -- only the
-    # aligned-cloud PLY is saved downstream, not an aligned STL). Smaller / non-
-    # binary CT files fall back to the in-memory mesh loader.
     if srcs.get("ct"):
         try:
             ct_path = srcs["ct"]
@@ -105,11 +97,6 @@ def load_and_normalize(part_id: str,
         except Exception as e:                       # never crash the batch
             LOG.warning("[%s] CT load failed: %s", part_id, e)
 
-    # --- Zephyr mesh -----------------------------------------------------
-    # Zephyr now ships cropped surface STL meshes (part only). Sampled to a
-    # cloud exactly like CT. The binary STLs carry an ASCII-looking "solid"
-    # header that can trip open3d's parser, so prefer the size-based binary
-    # stream-sampler (is_binary_stl/stl_cloud) and fall back to the mesh loader.
     if srcs.get("zephyr"):
         try:
             zep_path = srcs["zephyr"]
