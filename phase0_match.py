@@ -5,9 +5,6 @@ Filenames are inconsistent across the three source folders ("2mm Dense point
 cloud.ply", "Mesh from 2PR.stl", "2PR.stl"), so we match purely by the part
 size embedded in the name via a regex. New parts drop in with no code change.
 
-Public API:
-    match_parts() -> dict[part_id] -> {"nominal": Path|None, "ct": Path|None,
-                                       "zephyr": Path|None}
 """
 
 from __future__ import annotations
