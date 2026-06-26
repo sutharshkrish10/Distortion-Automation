@@ -11,9 +11,6 @@ Outputs per pair:
     * histogram PNG
     * summary stats (mean, std, rms, min, max, p95) for comparison_report.csv
 
-Public API:
-    signed_deviation(moving_pcd, ref_pcd) -> (distances, stats)
-    deviations_for_part(part_id, aligned) -> list[stat dict]
 """
 
 from __future__ import annotations
